@@ -133,9 +133,11 @@ class PracticeSessionApiTests(unittest.TestCase):
 
         result = self.client.get(body["result_url"], headers=self.headers)
         self.assertEqual(200, result.status_code, result.text)
-        fluency = result.json()["result"]["guided_speaking_fluency"]
-        self.assertEqual("guided", fluency["mode"])
-        self.assertIsNone(fluency["cefr_fluency_estimate"])
+        learner_result = result.json()["result"]
+        self.assertEqual("incomplete", learner_result["result_status"])
+        self.assertEqual("Conversation not completed", learner_result["headline"])
+        self.assertNotIn("guided_speaking_fluency", learner_result)
+        self.assertNotIn("diagnostics", learner_result)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,87 @@
+{
+  "id": "airport.check_in.a2",
+  "version": 1,
+  "status": "published",
+  "domain_id": "airport",
+  "theme": "airport_check_in",
+  "title": "Checking In for a Flight",
+  "required_level": "A2",
+  "estimated_minutes": 4,
+  "learner_role": "passenger",
+  "system_role": "airline check-in agent",
+  "objective": "Check in for a flight, answer baggage questions, choose a seat, and find the gate",
+  "situation": "You are at the airline desk checking in for an international flight.",
+  "useful_vocabulary": ["passport", "ticket", "suitcase", "window seat", "gate", "security"],
+  "target_functions": ["provide travel documents", "answer safety questions", "state a preference", "ask for directions"],
+  "target_phonemes": ["/p/", "/t/", "/w/"],
+  "closing_display_text": "No, that is everything. Have a pleasant flight!",
+  "closing_spoken_text": "No, that is everything. Have a pleasant flight!",
+  "turns": [
+    {
+      "id": "turn_01",
+      "assistant_display_text": "Good morning. May I see your passport and ticket?",
+      "assistant_spoken_text": "Good morning. May I see your passport and ticket?",
+      "assistant_audio_asset": null,
+      "user_display_text": "Of course. Here are my passport and ticket.",
+      "user_expected_text": "Of course. Here are my passport and ticket.",
+      "arabic_hint": "قدّم جواز سفرك وتذكرتك.",
+      "expected_pause_after_word_indexes": [2],
+      "evaluation": {"pronunciation": true, "fluency": true, "target_words": ["passport", "ticket"]}
+    },
+    {
+      "id": "turn_02",
+      "assistant_display_text": "Are you checking in any bags today?",
+      "assistant_spoken_text": "Are you checking in any bags today?",
+      "assistant_audio_asset": null,
+      "user_display_text": "Yes, I have one suitcase to check in.",
+      "user_expected_text": "Yes, I have one suitcase to check in.",
+      "arabic_hint": "قل إن لديك حقيبة واحدة للشحن.",
+      "expected_pause_after_word_indexes": [2],
+      "evaluation": {"pronunciation": true, "fluency": true, "target_words": ["suitcase", "check"]}
+    },
+    {
+      "id": "turn_03",
+      "assistant_display_text": "Did you pack the suitcase yourself?",
+      "assistant_spoken_text": "Did you pack the suitcase yourself?",
+      "assistant_audio_asset": null,
+      "user_display_text": "Yes, I packed it myself this morning.",
+      "user_expected_text": "Yes, I packed it myself this morning.",
+      "arabic_hint": "أكّد أنك حزمت الحقيبة بنفسك هذا الصباح.",
+      "expected_pause_after_word_indexes": [2],
+      "evaluation": {"pronunciation": true, "fluency": true, "target_words": ["packed", "myself"]}
+    },
+    {
+      "id": "turn_04",
+      "assistant_display_text": "Would you prefer a window seat or an aisle seat?",
+      "assistant_spoken_text": "Would you prefer a window seat or an aisle seat?",
+      "assistant_audio_asset": null,
+      "user_display_text": "I would prefer a window seat, please.",
+      "user_expected_text": "I would prefer a window seat, please.",
+      "arabic_hint": "اختر مقعداً بجانب النافذة.",
+      "expected_pause_after_word_indexes": [3],
+      "evaluation": {"pronunciation": true, "fluency": true, "target_words": ["prefer", "window"]}
+    },
+    {
+      "id": "turn_05",
+      "assistant_display_text": "Your gate is A twelve. Boarding starts at nine thirty.",
+      "assistant_spoken_text": "Your gate is A twelve. Boarding starts at nine thirty.",
+      "assistant_audio_asset": null,
+      "user_display_text": "Thank you. How long will it take to reach the gate?",
+      "user_expected_text": "Thank you. How long will it take to reach the gate?",
+      "arabic_hint": "اسأل عن الوقت اللازم للوصول إلى البوابة.",
+      "expected_pause_after_word_indexes": [2],
+      "evaluation": {"pronunciation": true, "fluency": true, "target_words": ["reach", "gate"]}
+    },
+    {
+      "id": "turn_06",
+      "assistant_display_text": "About ten minutes. Security is just ahead.",
+      "assistant_spoken_text": "About ten minutes. Security is just ahead.",
+      "assistant_audio_asset": null,
+      "user_display_text": "Great. Is there anything else I need to do?",
+      "user_expected_text": "Great. Is there anything else I need to do?",
+      "arabic_hint": "اسأل إذا كان عليك فعل أي شيء آخر.",
+      "expected_pause_after_word_indexes": [1],
+      "evaluation": {"pronunciation": true, "fluency": true, "target_words": ["anything", "need"]}
+    }
+  ]
+}

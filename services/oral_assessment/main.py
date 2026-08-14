@@ -10,12 +10,16 @@ from fastapi.responses import JSONResponse
 
 from services.fluency.api import router as fluency_router
 from services.guided_conversation.api import (
+    admin_router as guided_admin_router,
+)
+from services.guided_conversation.api import (
     install_exception_handlers as install_guided_exception_handlers,
 )
 from services.guided_conversation.api import router as guided_router
 from services.guided_conversation.catalog import ScenarioCatalogRepository
 from services.guided_conversation.pronunciation import GuidedPronunciationPublisher
 from services.guided_conversation.service import GuidedConversationService
+from services.local_tts import PiperConfigurationError, PiperSynthesizer
 from services.practice_sessions.api import router as practice_sessions_router
 from services.practice_sessions.tokens import LiveKitTokenIssuer
 
@@ -91,6 +95,13 @@ def create_app(project_root: Path | None = None) -> FastAPI:
         pronunciation_configured=guided_pronunciation_publisher.configured,
         public_service_url=settings.guided_service_public_url,
     )
+    piper_synthesizer = None
+    try:
+        piper_synthesizer = PiperSynthesizer(root)
+    except PiperConfigurationError as exc:
+        if settings.piper_required:
+            readiness_errors.append(str(exc))
+        logging.getLogger("local-tts").warning("Piper unavailable: %s", exc)
     app = FastAPI(
         title="English Tutor Assessment and Practice Service",
         version=settings.assessment_version,
@@ -107,6 +118,7 @@ def create_app(project_root: Path | None = None) -> FastAPI:
     app.state.assessment_service = assessment_service
     app.state.guided_service = guided_service
     app.state.guided_pronunciation_publisher = guided_pronunciation_publisher
+    app.state.piper_synthesizer = piper_synthesizer
     app.state.livekit_token_issuer = LiveKitTokenIssuer(
         settings.livekit_url,
         settings.livekit_api_key,
@@ -124,12 +136,14 @@ def create_app(project_root: Path | None = None) -> FastAPI:
         "fluency": settings.fluency_version,
         "guided_scenarios": scenario_catalog.content_version,
         "guided_engine": "guided-engine-v0.2",
+        "guided_tts": "piper-1.6.0",
     }
     repository.set_runtime_setting("active_item_bank_version", item_bank.bank.version)
     app.add_middleware(SecurityAndObservabilityMiddleware, settings=settings, metrics=metrics)
     app.include_router(router)
     app.include_router(fluency_router)
     app.include_router(guided_router)
+    app.include_router(guided_admin_router)
     app.include_router(practice_sessions_router)
     install_guided_exception_handlers(app)
 

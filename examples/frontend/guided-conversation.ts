@@ -50,7 +50,34 @@ export interface GuidedBootstrap {
   room_name: string;
   server_url: string;
   participant_token: string;
+  result_url: string;
   guided_session: GuidedSessionView;
+}
+
+export interface GuidedLearnerSkill {
+  key: "pace" | "smoothness" | "connected_speech";
+  label: string;
+  score: number;
+  rating: "strong" | "good" | "keep_practising";
+  message: string;
+}
+
+export interface GuidedLearnerResult {
+  session_id: string;
+  domain_title: string;
+  scenario_title: string;
+  scenario_level: "A1" | "A2" | "B1" | "B2";
+  result_status: "ready" | "needs_more_speech" | "incomplete";
+  headline: string;
+  speaking_flow_score: number | null;
+  completion: { completed_lines: number; total_lines: number; percent: number };
+  skills: GuidedLearnerSkill[];
+  strength: string | null;
+  next_step: string;
+  pronunciation_tips: string[];
+  can_practise_again: boolean;
+  replay_audio_url: string | null;
+  practice_note: string;
 }
 
 export type GuidedEvent = {
@@ -128,9 +155,21 @@ export async function sendGuidedCommand(
   }
 }
 
+/** Play the Piper WAV returned by the team's authenticated BFF replay route. */
+export async function playGuidedReplay(replayUrl: string, audio: HTMLAudioElement): Promise<void> {
+  const response = await fetch(replayUrl, { credentials: "include" });
+  if (!response.ok) throw new Error(`Guided replay failed with HTTP ${response.status}`);
+  const objectUrl = URL.createObjectURL(await response.blob());
+  audio.src = objectUrl;
+  audio.onended = () => URL.revokeObjectURL(objectUrl);
+  await audio.play();
+}
+
 // The team BFF may proxy the supplied service contracts as:
 // GET  /api/guided-conversations/domains (each domain contains scenarios)
 // GET  /api/guided-conversations/:scenarioId/preview
 // POST /api/practice-sessions  body: { mode: "guided", scenario_id: ... }
 // POST /api/guided-conversations/:sessionId/confidence
 // GET  /api/practice-sessions/:sessionId/result?mode=guided
+// GET  /api/guided-conversations/:sessionId/replay-audio (proxy Piper WAV)
+// GET  /api/admin/guided-conversations/:sessionId/debug-report (staff only)

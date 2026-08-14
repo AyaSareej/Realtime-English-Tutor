@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from services.fluency.models import FluencySessionResult, PracticeMode
 from services.guided_conversation.models import (
     CEFRLevel,
-    GuidedConversationReport,
+    GuidedLearnerResult,
     GuidedSessionView,
 )
 
@@ -65,4 +65,4 @@ class PracticeSessionCreateResponse(StrictModel):
 class PracticeSessionResult(StrictModel):
     practice_session_id: str
     mode: PracticeMode
-    result: FluencySessionResult | GuidedConversationReport
+    result: FluencySessionResult | GuidedLearnerResult

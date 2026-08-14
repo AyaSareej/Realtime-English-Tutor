@@ -7,6 +7,7 @@ app/realtime/assessment_payload.py
 app/realtime/assessment_turns.py
 app/realtime/conversation_fluency.py
 app/realtime/guided_conversation.py
+app/realtime/piper_tts.py
 app/realtime/voice_agent.py
 app/services/__init__.py
 app/services/assessment_client.py
@@ -31,6 +32,8 @@ services/guided_conversation/models.py
 services/guided_conversation/pronunciation.py
 services/guided_conversation/repository.py
 services/guided_conversation/service.py
+services/local_tts/__init__.py
+services/local_tts/piper.py
 services/oral_assessment/__init__.py
 services/oral_assessment/api.py
 services/oral_assessment/branching_engine.py
@@ -60,6 +63,7 @@ services/oral_assessment/tests/test_guided_conversation.py
 services/oral_assessment/tests/test_guided_runtime.py
 services/oral_assessment/tests/test_item_bank.py
 services/oral_assessment/tests/test_pilot_regressions.py
+services/oral_assessment/tests/test_piper_tts.py
 services/oral_assessment/tests/test_practice_modes.py
 services/oral_assessment/tests/test_provider_failure_recovery.py
 services/oral_assessment/tests/test_scoring_and_branching.py

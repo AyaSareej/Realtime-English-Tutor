@@ -22,6 +22,9 @@ from .models import (
     GuidedDeliveryMetrics,
     GuidedDomainSummary,
     GuidedFluencyThresholds,
+    GuidedLearnerCompletion,
+    GuidedLearnerResult,
+    GuidedLearnerSkill,
     GuidedLineDiagnostic,
     GuidedPronunciationRequestedEvent,
     GuidedPronunciationResultEvent,
@@ -853,6 +856,131 @@ class GuidedConversationService:
                 "ASR completeness is an optional retry signal, not a pronunciation judgment.",
                 "The fluency thresholds are an explainable MVP baseline pending human calibration.",
             ],
+        )
+
+    @staticmethod
+    def _learner_rating(score: int) -> str:
+        if score >= 80:
+            return "strong"
+        if score >= 60:
+            return "good"
+        return "keep_practising"
+
+    @staticmethod
+    def _learner_skill_message(key: str, score: int) -> str:
+        if key == "pace":
+            if score >= 80:
+                return "You kept a comfortable, steady speaking pace."
+            if score >= 60:
+                return "Your pace was mostly clear; keep it steady through the whole line."
+            return "Say each line a little more slowly and keep an even rhythm."
+        if key == "smoothness":
+            if score >= 80:
+                return "You moved through the lines with very few disruptive pauses."
+            if score >= 60:
+                return "Most lines flowed well; practise the places where you stopped mid-sentence."
+            return "Practise the line in short chunks, then join the chunks without long pauses."
+        if score >= 80:
+            return "You connected your words into complete, natural phrases."
+        if score >= 60:
+            return "Your words were usually connected; aim for slightly longer phrases."
+        return "Try to say two or three more words together before pausing."
+
+    def learner_result(self, session_id: str) -> GuidedLearnerResult:
+        """Transform internal evidence into a small, non-diagnostic learner result."""
+        report = self.report(session_id)
+        completion_percent = round(report.completed_turns / report.total_turns * 100)
+        completion = GuidedLearnerCompletion(
+            completed_lines=report.completed_turns,
+            total_lines=report.total_turns,
+            percent=completion_percent,
+        )
+        if report.status != GuidedSessionStatus.COMPLETED:
+            return GuidedLearnerResult(
+                session_id=report.session_id,
+                domain_title=report.domain_title,
+                scenario_title=report.scenario_title,
+                scenario_level=report.scenario_level,
+                result_status="incomplete",
+                headline="Conversation not completed",
+                completion=completion,
+                skills=[],
+                next_step="Finish every line to receive speaking-flow feedback.",
+            )
+
+        fluency = report.guided_speaking_fluency
+        if fluency.fluency_index is None or fluency.subscores is None:
+            return GuidedLearnerResult(
+                session_id=report.session_id,
+                domain_title=report.domain_title,
+                scenario_title=report.scenario_title,
+                scenario_level=report.scenario_level,
+                result_status="needs_more_speech",
+                headline="Let’s try this scenario once more",
+                completion=completion,
+                skills=[],
+                next_step=(
+                    "Repeat the scenario and speak each complete line clearly so the app can "
+                    "measure your speaking flow."
+                ),
+                replay_audio_url=(
+                    f"/v1/guided-conversations/sessions/{report.session_id}/replay-audio"
+                ),
+            )
+
+        skill_values = [
+            ("pace", "Pace", fluency.subscores.speed),
+            ("smoothness", "Smoothness", fluency.subscores.breakdown),
+            ("connected_speech", "Connected speech", fluency.subscores.continuity),
+        ]
+        skills = [
+            GuidedLearnerSkill(
+                key=key,  # type: ignore[arg-type]
+                label=label,
+                score=score,
+                rating=self._learner_rating(score),  # type: ignore[arg-type]
+                message=self._learner_skill_message(key, score),
+            )
+            for key, label, score in skill_values
+        ]
+        strongest = max(skills, key=lambda item: item.score)
+        weakest = min(skills, key=lambda item: item.score)
+        index = fluency.fluency_index
+        headline = (
+            "Strong speaking flow"
+            if index >= 80
+            else "Good progress"
+            if index >= 60
+            else "Keep practising your flow"
+        )
+        pronunciation_tips: list[str] = []
+        seen_words: set[str] = set()
+        for pattern in report.pronunciation.patterns:
+            word_key = pattern.word.lower()
+            if word_key in seen_words:
+                continue
+            seen_words.add(word_key)
+            pronunciation_tips.append(
+                f"Practise “{pattern.word}” slowly, then say it again inside the full sentence."
+            )
+            if len(pronunciation_tips) == 3:
+                break
+        return GuidedLearnerResult(
+            session_id=report.session_id,
+            domain_title=report.domain_title,
+            scenario_title=report.scenario_title,
+            scenario_level=report.scenario_level,
+            result_status="ready",
+            headline=headline,
+            speaking_flow_score=index,
+            completion=completion,
+            skills=skills,
+            strength=f"Your strongest area was {strongest.label.lower()}.",
+            next_step=weakest.message,
+            pronunciation_tips=pronunciation_tips,
+            replay_audio_url=(
+                f"/v1/guided-conversations/sessions/{report.session_id}/replay-audio"
+            ),
         )
 
     @staticmethod

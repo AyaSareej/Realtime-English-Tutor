@@ -1,11 +1,17 @@
 {
-  "content_version": "guided-content-v2",
+  "content_version": "guided-content-v3",
   "domains": [
     {
       "id": "restaurant",
       "title": "Restaurant",
       "description": "Practice ordering, paying, and resolving common problems in restaurants and cafes.",
       "order": 1
+    },
+    {
+      "id": "airport",
+      "title": "Airport",
+      "description": "Practice check-in, baggage questions, seat choices, and finding the departure gate.",
+      "order": 2
     }
   ]
 }

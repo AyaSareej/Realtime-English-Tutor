@@ -1,6 +1,9 @@
 # Backend integration guide
 
-Base URL defaults to `http://127.0.0.1:8080`. Send `Authorization: Bearer <ASSESSMENT_SERVICE_TOKEN>` and an optional `X-Correlation-ID` on every `/v1` request. Never expose this service token to a public browser; the application backend calls the service.
+Base URL defaults to `http://127.0.0.1:8080`. Send
+`Authorization: Bearer <ASSESSMENT_SERVICE_TOKEN>` and an optional `X-Correlation-ID` on normal
+`/v1` requests. `/v1/admin` requires the separate `ASSESSMENT_ADMIN_TOKEN`. Never expose either
+token to a public browser; the application backend calls the service.
 
 ## Flow
 
@@ -185,9 +188,16 @@ browser uses ephemeral `conversation_turn` payloads to maintain visible conversa
 render word-recognition confidence colors. Do not treat these packets as durable state; refresh
 `GET /v1/guided-conversations/sessions/{id}` after reconnecting.
 
-The guided report separates pronunciation, `guided_speaking_fluency`, delivery stability, and
-self-reported confidence. It never includes a CEFR fluency estimate and must never update the user's
-placement record. See `docs/guided_conversations/guided_mode_v0_2.md` and
+The public guided result is a deliberately small learner DTO. It contains a speaking-flow score,
+completion, the three skills Pace/Smoothness/Connected Speech, one strength, one next step,
+optional real pronunciation tips, replay/practise-again actions, and the no-CEFR-change note. It
+never includes a CEFR fluency estimate and must never update the user's placement record.
+
+Evidence confidence, eligible-line counts, raw timings, delivery stability, retry/self-report
+internals, repair/breakdown terminology, thresholds, versions, limitations, and line diagnostics
+are intentionally absent from the learner contract. These remain available through the protected
+admin debug route for staff investigation. See
+`docs/guided_conversations/guided_mode_v0_2.md` and
 `examples/frontend/guided-conversation.ts`.
 
 Retrieve learner-safe practice output through the unified route:
@@ -196,6 +206,24 @@ Retrieve learner-safe practice output through the unified route:
 GET /v1/practice-sessions/{practice_session_id}/result?mode=guided
 GET /v1/practice-sessions/{practice_session_id}/result?mode=free
 ```
+
+Never proxy this developer route to the learner browser:
+
+```http
+GET /v1/admin/guided-conversations/sessions/{practice_session_id}/debug-report
+Authorization: Bearer <ASSESSMENT_ADMIN_TOKEN>
+```
+
+Full-conversation replay is a Piper-rendered WAV:
+
+```http
+GET /v1/guided-conversations/sessions/{practice_session_id}/replay-audio
+Authorization: Bearer <ASSESSMENT_SERVICE_TOKEN>
+```
+
+Piper runs locally for guided character lines and replay. It does not remove the network
+requirements for LiveKit room transport or Deepgram Flux recognition. Free conversation and
+placement keep their existing streaming TTS providers.
 
 ## Audio and pronunciation
 

@@ -5,6 +5,7 @@ import logging
 import os
 import threading
 from collections.abc import AsyncIterable
+from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
@@ -32,6 +33,7 @@ from app.realtime.conversation_fluency import (
     conversation_mode,
 )
 from app.realtime.guided_conversation import run_guided_conversation_session
+from app.realtime.piper_tts import PiperTTS
 from services.fluency.models import PracticeMode
 
 # ============================================================
@@ -261,7 +263,7 @@ def build_llm() -> inference.LLM:
 # PHASE 3: STREAMING TTS, AUDIO ENHANCEMENT, AND BARGE-IN
 # ============================================================
 
-def build_tts() -> deepgram.TTS:
+def build_free_tts() -> deepgram.TTS:
     """
     Restore the preferred Deepgram Aura-2 Andromeda voice.
 
@@ -283,6 +285,21 @@ def build_tts() -> deepgram.TTS:
         model=model,
         sample_rate=24_000,
     )
+
+
+def build_tts() -> deepgram.TTS:
+    """Keep assessment/free-mode callers on the existing online streaming voice."""
+    return build_free_tts()
+
+
+def build_guided_tts() -> PiperTTS:
+    """Use a preinstalled local Piper voice for deterministic guided lines."""
+    project_root = Path(__file__).resolve().parents[2]
+    logger.info(
+        "[TTS] provider=piper-local | voice=%s | network=no",
+        os.getenv("PIPER_VOICE", "en_US-lessac-medium"),
+    )
+    return PiperTTS(project_root)
 
 
 def build_audio_input_options() -> room_io.AudioInputOptions:
@@ -528,19 +545,19 @@ async def english_tutor_session(
     mode = conversation_mode(ctx)
     stt = build_stt()
     vad = build_vad()
-    tts = build_tts()
     if mode == PracticeMode.GUIDED:
         await run_guided_conversation_session(
             ctx,
             stt=stt,
             vad=vad,
-            tts=tts,
+            tts=build_guided_tts(),
             audio_input_options=build_audio_input_options(),
             aec_warmup_duration=env_float("AEC_WARMUP_SECONDS", 1.0),
         )
         return
 
     llm = build_llm()
+    tts = build_free_tts()
     fluency_tracker = ConversationFluencyTracker(
         session_id=ctx.room.name,
         mode=PracticeMode.FREE,

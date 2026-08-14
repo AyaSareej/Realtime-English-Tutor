@@ -1,95 +1,100 @@
 # Debugging Guided Results
 
-The result card reports **evidence eligibility**, not whether the learner sounded
-clear to a person. A clear line can still be excluded when the speech-to-text
-provider did not return enough timed words or enough first-to-last-word duration.
+Release 0.7.0 separates the result shown to a learner from the evidence needed by a
+developer. This prevents low-level ASR/timing details from being mistaken for a judgment about
+the learner.
 
-## Read the summary correctly
+## Learner route
 
-- `Eligible lines 2/6` means that six learner lines were evaluated and only two
-  passed the evidence gates.
-- `Learner speech 5.5 s` is the duration accumulated from eligible timed lines.
-  It is not necessarily every second the learner spoke.
-- `Evidence confidence Low` follows from the small eligible evidence set; it is
-  not a pronunciation judgment.
-- `Not Enough Evidence` intentionally suppresses the fluency index instead of
-  presenting an unstable score.
+```http
+GET /v1/practice-sessions/{session_id}/result?mode=guided
+Authorization: Bearer <ASSESSMENT_SERVICE_TOKEN>
+```
 
-Release 0.6.0 uses guided-specific gates:
+The normal route contains only the coaching DTO: speaking-flow score, three skills, strength,
+next step, optional real pronunciation tips, completion, and replay/practise-again actions. It
+never contains `result_debug`, evidence confidence, delivery internals, raw timings, versions,
+or the replay script.
 
-- a line needs at least 2 timed words and 0.8 seconds of timed evidence;
-- a session needs at least 3 eligible lines; and
-- it then needs either 5 eligible lines or 8 seconds of eligible learner speech.
+The BFF may proxy this route to the authenticated learner. It must keep the service token
+server-side.
 
-Free conversation and placement-assessment thresholds are unchanged.
+## Admin-only debug route
 
-## Inspect every line in the browser
+```http
+GET /v1/admin/guided-conversations/sessions/{session_id}/debug-report
+Authorization: Bearer <ASSESSMENT_ADMIN_TOKEN>
+```
 
-At the end of a guided scenario, click **View result and debug details**. The
-debug table shows:
+The middleware requires the separate admin token for every `/v1/admin` route. Do not expose this
+credential or response to the browser. Use the route for support, calibration, and system
+investigation.
 
-- whether the line was eligible;
-- timed word count;
-- first-to-last-word duration;
-- timing source;
-- mean ASR recognition confidence; and
-- exact rejection reasons.
-
-The transcript colors use speech-to-text recognition confidence: below 25% is
-red, 25% to below 75% is orange, and 75% or above is white. These colors help
-debug recognition. They are not pronunciation-accuracy scores.
-
-## Inspect the same data from PowerShell
-
-Copy the `practice_session_id`, which starts with `guided-`, then run:
+From PowerShell:
 
 ```powershell
-$token = (Get-Content .env |
-  Where-Object { $_ -like "ASSESSMENT_SERVICE_TOKEN=*" } |
+$adminToken = (Get-Content .env |
+  Where-Object { $_ -like "ASSESSMENT_ADMIN_TOKEN=*" } |
   Select-Object -First 1).Split("=", 2)[1]
 
 $sessionId = "guided-REPLACE-ME"
-$response = Invoke-RestMethod `
-  -Uri "http://127.0.0.1:8080/v1/practice-sessions/$sessionId/result?mode=guided" `
-  -Headers @{ Authorization = "Bearer $token" }
+$debug = Invoke-RestMethod `
+  -Uri "http://127.0.0.1:8080/v1/admin/guided-conversations/sessions/$sessionId/debug-report" `
+  -Headers @{ Authorization = "Bearer $adminToken" }
 
-$response.result.result_debug.summary
-$response.result.result_debug.thresholds
-$response.result.result_debug.lines |
+$debug.result_debug.summary
+$debug.result_debug.thresholds
+$debug.result_debug.lines |
   Select-Object line_number, eligible, timed_word_count,
     response_duration_seconds, timing_source, asr_confidence_percent,
     insufficiency_reasons |
   Format-Table -Wrap
 ```
 
-Interpret the common rejection reasons as follows:
+## How to read the diagnostics
 
-| Reason | Meaning | What to check |
+Release 0.7.0 preserves the guided short-line gates from 0.6.0:
+
+- a line needs at least two timed words and 0.8 seconds of timed evidence;
+- a session needs at least three eligible lines; and
+- it then needs either five eligible lines or eight seconds of eligible learner speech.
+
+Free conversation and placement-assessment thresholds are unchanged.
+
+| Debug reason | Meaning | Check |
 | --- | --- | --- |
-| Word-level timestamps were unavailable | The STT result had text but no usable word timing | Confirm the guided worker is using Deepgram Flux and inspect provider events |
-| Fewer than 2 timed words | Too few returned words could be timed | Check whether the microphone clipped the start/end or STT dropped words |
-| Less than 0.8 seconds | The measured first-to-last-word span was too short | Check the returned word start/end values; do not use wall-clock turn time |
-| Explicit audio issue | The turn was deliberately marked unusable | Inspect the accompanying audio issue reason |
+| Word-level timestamps were unavailable | STT returned text but no usable word timing | Verify the worker uses Deepgram Flux and inspect provider events |
+| Fewer than 2 timed words | Too few recognized words had timings | Check clipped audio or dropped words |
+| Less than 0.8 seconds | First-to-last timed-word span was too short | Inspect word start/end values, not wall-clock turn time |
+| Explicit audio issue | The turn was deliberately marked unusable | Inspect the stored audio-issue reason |
 
-For one failed line, compare `timed_word_count`,
-`response_duration_seconds`, `timing_source`, and
-`asr_confidence_percent` together. That distinguishes missing timing from poor
-recognition and from a genuinely short utterance.
+Evidence confidence describes sufficiency of timing evidence. It is not pronunciation confidence,
+not a probability that the score is correct, and not useful learner-facing feedback. ASR word
+colors likewise show recognition confidence and are not pronunciation grades.
+
+## Piper diagnostics
+
+```powershell
+.\.venv\Scripts\python.exe tools\piper_preflight.py
+```
+
+The command loads the configured model and performs real synthesis. If the model or config is
+missing, rerun `scripts\setup_piper.ps1` while online. With `PIPER_REQUIRED=true`, the missing
+voice also appears in `/health/ready`.
+
+The replay endpoint requires a completed scenario. HTTP 409 means the session is not complete;
+HTTP 503 means Piper is unavailable or local synthesis failed. Worker logs use
+`provider=piper-local` for guided speech. Free/assessment speech continues to use its configured
+online voice.
 
 ## Verify completion shutdown
 
-After the closing line, the browser should receive `guided.session_closed`, turn
-off its microphone, and disconnect from the LiveKit room. The per-room agent
-session stops accepting speech. The `run_tutor.ps1` terminal remains running
-because it is the shared worker service for future learners; that is expected.
-
-If a completed room still accepts speech, filter the worker log for the room name
-and verify this event order:
+After the closing line, the expected order is:
 
 1. `guided.completed`
-2. final assistant speech finishes
+2. final Piper assistant speech finishes
 3. `guided.session_closed`
 4. room disconnect / job shutdown
 
-The worker must not speak a fallback warning after a session reaches `completed`
-or `stopped`.
+The per-room agent session must stop accepting speech. The `run_tutor.ps1` terminal remains
+running because it is the shared worker for future learners.

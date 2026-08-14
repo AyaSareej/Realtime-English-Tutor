@@ -3,7 +3,7 @@ info:
   title: English Tutor Assessment and Practice Service
   description: CEFR-aligned adaptive oral placement plus deterministic guided role-play
     practice. Guided practice does not issue or change CEFR placement.
-  version: 0.6.0
+  version: 0.7.0
 paths:
   /health/live:
     get:
@@ -735,6 +735,7 @@ paths:
       tags:
       - guided-conversations
       summary: Get Report
+      description: Return only the small result intended for the learner interface.
       operationId: get_report_v1_guided_conversations_sessions__session_id__report_get
       parameters:
       - name: session_id
@@ -749,7 +750,32 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GuidedConversationReport'
+                $ref: '#/components/schemas/GuidedLearnerResult'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/guided-conversations/sessions/{session_id}/replay-audio:
+    get:
+      tags:
+      - guided-conversations
+      summary: Replay Audio
+      operationId: replay_audio_v1_guided_conversations_sessions__session_id__replay_audio_get
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
         '422':
           description: Validation Error
           content:
@@ -809,6 +835,33 @@ paths:
       responses:
         '204':
           description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/admin/guided-conversations/sessions/{session_id}/debug-report:
+    get:
+      tags:
+      - guided-conversation-debug
+      summary: Get Debug Report
+      description: Return evidence diagnostics under the admin credential only.
+      operationId: get_debug_report_v1_admin_guided_conversations_sessions__session_id__debug_report_get
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Session Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GuidedConversationReport'
         '422':
           description: Validation Error
           content:
@@ -2322,6 +2375,144 @@ components:
       - target_eligible_lines
       - minimum_speech_seconds_when_below_target
       title: GuidedFluencyThresholds
+    GuidedLearnerCompletion:
+      properties:
+        completed_lines:
+          type: integer
+          minimum: 0.0
+          title: Completed Lines
+        total_lines:
+          type: integer
+          minimum: 1.0
+          title: Total Lines
+        percent:
+          type: integer
+          maximum: 100.0
+          minimum: 0.0
+          title: Percent
+      additionalProperties: false
+      type: object
+      required:
+      - completed_lines
+      - total_lines
+      - percent
+      title: GuidedLearnerCompletion
+    GuidedLearnerResult:
+      properties:
+        session_id:
+          type: string
+          title: Session Id
+        domain_title:
+          type: string
+          title: Domain Title
+        scenario_title:
+          type: string
+          title: Scenario Title
+        scenario_level:
+          $ref: '#/components/schemas/CEFRLevel'
+        result_status:
+          type: string
+          enum:
+          - ready
+          - needs_more_speech
+          - incomplete
+          title: Result Status
+        headline:
+          type: string
+          title: Headline
+        speaking_flow_score:
+          anyOf:
+          - type: integer
+            maximum: 100.0
+            minimum: 0.0
+          - type: 'null'
+          title: Speaking Flow Score
+        completion:
+          $ref: '#/components/schemas/GuidedLearnerCompletion'
+        skills:
+          items:
+            $ref: '#/components/schemas/GuidedLearnerSkill'
+          type: array
+          maxItems: 3
+          title: Skills
+        strength:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Strength
+        next_step:
+          type: string
+          title: Next Step
+        pronunciation_tips:
+          items:
+            type: string
+          type: array
+          maxItems: 3
+          title: Pronunciation Tips
+        can_practise_again:
+          type: boolean
+          title: Can Practise Again
+          default: true
+        replay_audio_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Replay Audio Url
+        practice_note:
+          type: string
+          title: Practice Note
+          default: This feedback measures how smoothly you delivered this script.
+            It does not change your English level.
+      additionalProperties: false
+      type: object
+      required:
+      - session_id
+      - domain_title
+      - scenario_title
+      - scenario_level
+      - result_status
+      - headline
+      - completion
+      - skills
+      - next_step
+      title: GuidedLearnerResult
+      description: Small, actionable result intended for the real learner interface.
+    GuidedLearnerSkill:
+      properties:
+        key:
+          type: string
+          enum:
+          - pace
+          - smoothness
+          - connected_speech
+          title: Key
+        label:
+          type: string
+          title: Label
+        score:
+          type: integer
+          maximum: 100.0
+          minimum: 0.0
+          title: Score
+        rating:
+          type: string
+          enum:
+          - strong
+          - good
+          - keep_practising
+          title: Rating
+        message:
+          type: string
+          title: Message
+      additionalProperties: false
+      type: object
+      required:
+      - key
+      - label
+      - score
+      - rating
+      - message
+      title: GuidedLearnerSkill
     GuidedLineDiagnostic:
       properties:
         line_number:
@@ -3025,7 +3216,7 @@ components:
         result:
           anyOf:
           - $ref: '#/components/schemas/FluencySessionResult'
-          - $ref: '#/components/schemas/GuidedConversationReport'
+          - $ref: '#/components/schemas/GuidedLearnerResult'
           title: Result
       additionalProperties: false
       type: object

@@ -13,6 +13,7 @@ interface Props {
   room: Room;
   initialSession: GuidedSessionView;
   onShowReport: (sessionId: string) => void;
+  onReplayAll: (sessionId: string) => Promise<void>;
 }
 
 interface HistoryEntry {
@@ -53,7 +54,12 @@ function wordColor(word: GuidedRecognitionWord): string {
 }
 
 /** Reference UI only; copy its state contract into the team's existing frontend. */
-export function GuidedConversationPanel({ room, initialSession, onShowReport }: Props) {
+export function GuidedConversationPanel({
+  room,
+  initialSession,
+  onShowReport,
+  onReplayAll,
+}: Props) {
   const initialAssistant = assistantEntry(initialSession);
   const [session, setSession] = useState(initialSession);
   const [history, setHistory] = useState<HistoryEntry[]>(
@@ -119,18 +125,6 @@ export function GuidedConversationPanel({ room, initialSession, onShowReport }: 
   ) => {
     setError(null);
     await sendGuidedCommand(room, value);
-  };
-
-  const repeatAll = () => {
-    if (!("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel();
-    history.forEach((entry) => {
-      const utterance = new SpeechSynthesisUtterance(entry.text);
-      utterance.lang = "en-US";
-      utterance.rate = 0.92;
-      utterance.pitch = entry.role === "assistant" ? 1.05 : 0.95;
-      window.speechSynthesis.speak(utterance);
-    });
   };
 
   const finished = session.status === "completed" || session.status === "stopped";
@@ -213,9 +207,11 @@ export function GuidedConversationPanel({ room, initialSession, onShowReport }: 
 
       {finished && (
         <div>
-          <button type="button" onClick={repeatAll}>Replay full conversation</button>
+          <button type="button" onClick={() => void onReplayAll(session.session_id)}>
+            Replay full conversation
+          </button>
           <button type="button" onClick={() => onShowReport(session.session_id)}>
-            View report and debug details
+            View result
           </button>
         </div>
       )}

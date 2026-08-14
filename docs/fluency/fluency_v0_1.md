@@ -2,7 +2,7 @@
 
 Status: MVP engineering baseline  
 Applies to: controlled assessment, guided fixed-scenario practice, and free conversation  
-Release: 0.6.0
+Release: 0.7.0
 
 ## Construct and scope
 
@@ -132,13 +132,13 @@ Controlled assessment requires at least two eligible responses and 12 seconds of
 learner speech. Free practice requires at least three eligible turns and either
 five eligible turns total or 30 seconds of learner speech.
 
-Guided practice contains short predetermined lines, so release 0.6.0 applies a
+Guided practice contains short predetermined lines, so release 0.7.0 applies a
 mode-specific gate: at least two timed words and 0.8 seconds per line. Its session
 requires at least three eligible lines and either five eligible lines total or
 eight seconds of eligible learner speech. This correction prevents a clear short
 script line from being rejected merely because it is not long enough for a free
-conversation turn. The report exposes every line's evidence and rejection reasons
-under `result_debug`.
+conversation turn. The admin debug report exposes every line's evidence and rejection reasons
+under `result_debug`; the learner result does not.
 
 High session confidence requires broad timestamped evidence. The default is eight
 eligible turns and 60 seconds for conversation, or six eligible responses and 45
@@ -154,7 +154,7 @@ separately for technical validity monitoring.
 | Mode | Learner output | CEFR fluency label |
 |---|---|---|
 | Controlled assessment | Index, confidence, evidence, feedback, four subscores | Yes, after session evidence is sufficient |
-| Guided conversation | Exercise/session index, confidence, evidence, feedback | No |
+| Guided conversation | Speaking-flow score, Pace, Smoothness, Connected Speech, one strength, one next step | No |
 | Free conversation | Rolling session index, confidence, evidence, feedback | No |
 
 The assessment uses provisional absolute anchors of 30, 45, 60, and 75 for A1,

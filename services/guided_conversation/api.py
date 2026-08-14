@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Annotated
 
 from fastapi import (
@@ -15,6 +16,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 from .catalog import ScenarioLocked, ScenarioNotFound
 from .models import (
@@ -26,6 +28,7 @@ from .models import (
     GuidedControlResult,
     GuidedConversationReport,
     GuidedDomainSummary,
+    GuidedLearnerResult,
     GuidedPronunciationResultEvent,
     GuidedScenario,
     GuidedSessionCreateRequest,
@@ -41,6 +44,10 @@ from .service import (
 
 logger = logging.getLogger("guided-conversation")
 router = APIRouter(prefix="/v1/guided-conversations", tags=["guided-conversations"])
+admin_router = APIRouter(
+    prefix="/v1/admin/guided-conversations",
+    tags=["guided-conversation-debug"],
+)
 
 
 def _service(request: Request) -> GuidedConversationService:
@@ -167,9 +174,56 @@ def update_confidence(
     return _service(request).update_confidence(session_id, payload)
 
 
-@router.get("/sessions/{session_id}/report", response_model=GuidedConversationReport)
-def get_report(session_id: str, request: Request) -> GuidedConversationReport:
+@router.get("/sessions/{session_id}/report", response_model=GuidedLearnerResult)
+def get_report(session_id: str, request: Request) -> GuidedLearnerResult:
+    """Return only the small result intended for the learner interface."""
+    return _service(request).learner_result(session_id)
+
+
+@admin_router.get(
+    "/sessions/{session_id}/debug-report",
+    response_model=GuidedConversationReport,
+)
+def get_debug_report(session_id: str, request: Request) -> GuidedConversationReport:
+    """Return evidence diagnostics under the admin credential only."""
     return _service(request).report(session_id)
+
+
+@router.get("/sessions/{session_id}/replay-audio")
+async def replay_audio(session_id: str, request: Request) -> Response:
+    report = _service(request).report(session_id)
+    if report.status.value != "completed":
+        raise HTTPException(
+            status_code=409,
+            detail="Full-conversation replay is available after the scenario is completed",
+        )
+    synthesizer = request.app.state.piper_synthesizer
+    if synthesizer is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Local Piper TTS is unavailable; run scripts\\setup_piper.ps1",
+        )
+    normal_scale = float(os.getenv("PIPER_LENGTH_SCALE", "1.0"))
+    learner_scale = float(os.getenv("PIPER_REPLAY_LEARNER_LENGTH_SCALE", "1.06"))
+    pause_seconds = float(os.getenv("PIPER_REPLAY_PAUSE_SECONDS", "0.32"))
+    lines = [
+        (line.text, normal_scale if line.role == "assistant" else learner_scale)
+        for line in report.replay_script
+    ]
+    try:
+        payload = await run_in_threadpool(
+            synthesizer.synthesize_dialogue_wav,
+            lines,
+            pause_seconds=pause_seconds,
+        )
+    except Exception as exc:
+        logger.exception("Piper could not render the guided replay")
+        raise HTTPException(status_code=503, detail="Local replay audio could not be generated") from exc
+    return Response(
+        content=payload,
+        media_type="audio/wav",
+        headers={"Content-Disposition": f'inline; filename="{session_id}-replay.wav"'},
+    )
 
 
 @router.post(

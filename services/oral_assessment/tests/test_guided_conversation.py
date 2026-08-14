@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
@@ -81,17 +82,17 @@ class GuidedConversationServiceTests(unittest.TestCase):
 
     def test_catalog_is_level_gated_and_higher_scenario_is_visible(self) -> None:
         summaries = self.service.catalog_view(True, CEFRLevel.A1)
-        self.assertEqual(3, len(summaries))
+        self.assertEqual(4, len(summaries))
         unlocked = {item.scenario_id for item in summaries if not item.is_locked}
         locked = {item.scenario_id for item in summaries if item.is_locked}
         self.assertEqual(
             {"restaurant.order_drink.a1", "restaurant.order_meal.a1"},
             unlocked,
         )
-        self.assertEqual({"restaurant.wrong_order.b1"}, locked)
+        self.assertEqual({"restaurant.wrong_order.b1", "airport.check_in.a2"}, locked)
 
         domains = self.service.domain_catalog_view(True, CEFRLevel.A1)
-        self.assertEqual(1, len(domains))
+        self.assertEqual(2, len(domains))
         self.assertEqual("restaurant", domains[0].domain_id)
         self.assertEqual(3, domains[0].scenario_count)
         self.assertEqual(2, domains[0].available_scenario_count)
@@ -99,6 +100,9 @@ class GuidedConversationServiceTests(unittest.TestCase):
             {"restaurant.order_drink.a1", "restaurant.order_meal.a1"},
             {item.scenario_id for item in domains[0].scenarios if not item.is_locked},
         )
+        self.assertEqual("airport", domains[1].domain_id)
+        self.assertEqual(1, domains[1].scenario_count)
+        self.assertEqual(0, domains[1].available_scenario_count)
 
         with self.assertRaises(ScenarioLocked):
             self.service.create_session(
@@ -140,6 +144,32 @@ class GuidedConversationServiceTests(unittest.TestCase):
         self.assertEqual("restaurant", report.domain_id)
         self.assertEqual(0, report.result_debug.excluded_line_count)
         self.assertEqual(13, len(report.replay_script))
+        learner = self.service.learner_result(view.session_id)
+        self.assertEqual("ready", learner.result_status)
+        self.assertIsNotNone(learner.speaking_flow_score)
+        self.assertEqual(
+            {"pace", "smoothness", "connected_speech"},
+            {skill.key for skill in learner.skills},
+        )
+        public_payload = learner.model_dump(mode="json")
+        self.assertNotIn("result_debug", public_payload)
+        self.assertNotIn("confidence", public_payload)
+        self.assertNotIn("delivery_stability", public_payload)
+
+    def test_airport_scenario_is_unlocked_at_a2(self) -> None:
+        summaries = self.service.domain_catalog_view(True, CEFRLevel.A2)
+        airport = next(domain for domain in summaries if domain.domain_id == "airport")
+        self.assertEqual(1, airport.available_scenario_count)
+        view = self.service.create_session(
+            GuidedSessionCreateRequest(
+                user_id="traveller-1",
+                scenario_id="airport.check_in.a2",
+                placement_completed=True,
+                placement_level=CEFRLevel.A2,
+            )
+        )
+        self.assertEqual("Airport", view.domain_title)
+        self.assertEqual("Checking In for a Flight", view.scenario_title)
 
     def test_guided_short_lines_use_guided_specific_evidence_thresholds(self) -> None:
         view = self.service.mark_prompt_ready(self.create_a1_session().session_id)
@@ -207,7 +237,7 @@ class GuidedConversationServiceTests(unittest.TestCase):
         assert record is not None
         self.assertEqual(1, len(record.attempts))
 
-        with sqlite3.connect(self.database_path) as connection:
+        with closing(sqlite3.connect(self.database_path)) as connection:
             stored_json = connection.execute(
                 "SELECT record_json FROM guided_sessions WHERE session_id=?",
                 (view.session_id,),
@@ -336,6 +366,87 @@ class GuidedConversationApiTests(unittest.TestCase):
             params={"placement_completed": "true", "placement_level": "B1"},
         )
         self.assertEqual(200, unlocked.status_code)
+
+    def test_debug_report_requires_admin_token_and_public_report_hides_diagnostics(self) -> None:
+        created = self.client.post(
+            "/v1/guided-conversations/sessions",
+            headers=self.headers,
+            json={
+                "user_id": "api-learner",
+                "scenario_id": "restaurant.order_drink.a1",
+                "placement_completed": True,
+                "placement_level": "A1",
+                "recording_consent": False,
+            },
+        ).json()
+        session_id = created["session_id"]
+        public = self.client.get(
+            f"/v1/guided-conversations/sessions/{session_id}/report",
+            headers=self.headers,
+        )
+        self.assertEqual(200, public.status_code)
+        self.assertEqual("incomplete", public.json()["result_status"])
+        self.assertNotIn("result_debug", public.json())
+
+        rejected = self.client.get(
+            f"/v1/admin/guided-conversations/sessions/{session_id}/debug-report",
+            headers=self.headers,
+        )
+        self.assertEqual(401, rejected.status_code)
+        accepted = self.client.get(
+            f"/v1/admin/guided-conversations/sessions/{session_id}/debug-report",
+            headers={"Authorization": "Bearer guided-admin-token"},
+        )
+        self.assertEqual(200, accepted.status_code)
+        self.assertIn("result_debug", accepted.json())
+
+    def test_completed_replay_is_rendered_by_the_local_piper_service(self) -> None:
+        service = self.client.app.state.guided_service
+        view = service.create_session(
+            GuidedSessionCreateRequest(
+                user_id="replay-learner",
+                scenario_id="restaurant.order_drink.a1",
+                placement_completed=True,
+                placement_level=CEFRLevel.A1,
+            )
+        )
+        scenario = service.catalog.get(view.scenario_id, view.scenario_version)
+        for index in range(len(scenario.turns)):
+            view = service.mark_prompt_ready(view.session_id)
+            current = view.current_turn
+            assert current is not None
+            service.submit_attempt(
+                view.session_id,
+                GuidedAttemptRequest(
+                    attempt_id=f"replay-attempt-{index}",
+                    idempotency_key=f"replay-idempotency-{index}",
+                    turn_id=current.turn_id,
+                    transcript=current.learner_display_text,
+                    words=timed_words(current.learner_display_text),
+                ),
+            )
+
+        class FakeReplaySynthesizer:
+            def __init__(self) -> None:
+                self.lines: list[tuple[str, float]] = []
+                self.pause_seconds = 0.0
+
+            def synthesize_dialogue_wav(self, lines, *, pause_seconds):
+                self.lines = list(lines)
+                self.pause_seconds = pause_seconds
+                return b"RIFF-piper-test"
+
+        synthesizer = FakeReplaySynthesizer()
+        self.client.app.state.piper_synthesizer = synthesizer
+        replay = self.client.get(
+            f"/v1/guided-conversations/sessions/{view.session_id}/replay-audio",
+            headers=self.headers,
+        )
+        self.assertEqual(200, replay.status_code, replay.text)
+        self.assertEqual("audio/wav", replay.headers["content-type"])
+        self.assertEqual(b"RIFF-piper-test", replay.content)
+        self.assertEqual(13, len(synthesizer.lines))
+        self.assertGreater(synthesizer.pause_seconds, 0)
 
 
 if __name__ == "__main__":

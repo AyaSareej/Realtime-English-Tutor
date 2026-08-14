@@ -411,6 +411,43 @@ class GuidedResultDebug(StrictModel):
     guidance: list[str] = Field(default_factory=list)
 
 
+class GuidedLearnerSkill(StrictModel):
+    key: Literal["pace", "smoothness", "connected_speech"]
+    label: str
+    score: int = Field(ge=0, le=100)
+    rating: Literal["strong", "good", "keep_practising"]
+    message: str
+
+
+class GuidedLearnerCompletion(StrictModel):
+    completed_lines: int = Field(ge=0)
+    total_lines: int = Field(ge=1)
+    percent: int = Field(ge=0, le=100)
+
+
+class GuidedLearnerResult(StrictModel):
+    """Small, actionable result intended for the real learner interface."""
+
+    session_id: str
+    domain_title: str
+    scenario_title: str
+    scenario_level: CEFRLevel
+    result_status: Literal["ready", "needs_more_speech", "incomplete"]
+    headline: str
+    speaking_flow_score: int | None = Field(default=None, ge=0, le=100)
+    completion: GuidedLearnerCompletion
+    skills: list[GuidedLearnerSkill] = Field(max_length=3)
+    strength: str | None = None
+    next_step: str
+    pronunciation_tips: list[str] = Field(default_factory=list, max_length=3)
+    can_practise_again: bool = True
+    replay_audio_url: str | None = None
+    practice_note: str = (
+        "This feedback measures how smoothly you delivered this script. "
+        "It does not change your English level."
+    )
+
+
 class GuidedConversationReport(StrictModel):
     session_id: str
     scenario_id: str

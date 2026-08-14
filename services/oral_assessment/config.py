@@ -63,6 +63,7 @@ class Settings:
     livekit_url: str
     livekit_api_key: str
     livekit_api_secret: str
+    piper_required: bool
 
     @classmethod
     def from_env(cls, project_root: Path | None = None) -> Settings:
@@ -92,7 +93,7 @@ class Settings:
             evaluator_max_retries=_int("EVALUATOR_MAX_RETRIES", 3),
             evaluator_max_retry_wait_seconds=_float("EVALUATOR_MAX_RETRY_WAIT_SECONDS", 60.0),
             allow_heuristic_evaluator=_bool("ALLOW_HEURISTIC_EVALUATOR", False),
-            assessment_version=os.getenv("ASSESSMENT_VERSION", "0.6.0"),
+            assessment_version=os.getenv("ASSESSMENT_VERSION", "0.7.0"),
             item_bank_version=os.getenv("ITEM_BANK_VERSION", "0.2.0"),
             rubric_version=os.getenv("RUBRIC_VERSION", "0.3.0"),
             scorer_version=os.getenv("SCORER_VERSION", "0.3.0"),
@@ -112,6 +113,7 @@ class Settings:
             livekit_url=os.getenv("LIVEKIT_URL", ""),
             livekit_api_key=os.getenv("LIVEKIT_API_KEY", ""),
             livekit_api_secret=os.getenv("LIVEKIT_API_SECRET", ""),
+            piper_required=_bool("PIPER_REQUIRED", False),
         )
 
     @property

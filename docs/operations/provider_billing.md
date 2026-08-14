@@ -40,11 +40,16 @@ Official references:
 
 ## Deepgram speech
 
-The assessment uses Deepgram Flux English for streaming speech recognition and
-Aura-2 for speech generation. Current pay-as-you-go prices are:
+Free conversation and assessment use Deepgram Flux English for streaming speech
+recognition and Aura-2 for speech generation. Guided practice still uses Flux for
+recognition, but release 0.7.0 uses the pre-downloaded local Piper voice for character
+lines and replay. Current pay-as-you-go prices are:
 
 - Flux English streaming STT: USD 0.0065 per audio minute.
 - Aura-2 TTS: USD 0.030 per 1,000 input characters.
+
+Piper has no per-character provider charge. Budget local CPU/memory and review the selected
+voice model's license. LiveKit and Deepgram STT charges still apply to a live guided session.
 
 Deepgram currently advertises USD 200 of free credit for new pay-as-you-go
 accounts. The single `APITimeoutError` in the supplied log does not prove that

@@ -16,19 +16,25 @@ def main() -> None:
         "restaurant.order_drink.a1",
         "restaurant.order_meal.a1",
         "restaurant.wrong_order.b1",
+        "airport.check_in.a2",
     }
     actual_ids = {scenario.id for scenario in catalog.scenarios}
     if actual_ids != expected_ids:
         raise SystemExit(
             f"Expected guided scenario IDs {sorted(expected_ids)}, got {sorted(actual_ids)}"
         )
-    if {domain.id for domain in catalog.domains} != {"restaurant"}:
-        raise SystemExit("Expected one restaurant guided domain")
+    if {domain.id for domain in catalog.domains} != {"restaurant", "airport"}:
+        raise SystemExit("Expected restaurant and airport guided domains")
     restaurant_ids = {
         scenario.id for scenario in catalog.scenarios if scenario.domain_id == "restaurant"
     }
-    if restaurant_ids != expected_ids:
-        raise SystemExit("All current guided scenarios must belong to the restaurant domain")
+    if restaurant_ids != expected_ids - {"airport.check_in.a2"}:
+        raise SystemExit("The three restaurant scenarios must remain in the restaurant domain")
+    airport_ids = {
+        scenario.id for scenario in catalog.scenarios if scenario.domain_id == "airport"
+    }
+    if airport_ids != {"airport.check_in.a2"}:
+        raise SystemExit("The airport domain must contain the A2 check-in scenario")
     for scenario in catalog.scenarios:
         for turn in scenario.turns:
             if turn.user_display_text != turn.user_expected_text:

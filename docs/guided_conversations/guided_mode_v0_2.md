@@ -1,8 +1,8 @@
 # Guided Conversations v0.2
 
-Release: 0.6.0  
+Release: 0.7.0  
 Engine: `guided-engine-v0.2`  
-Content: `guided-content-v2`  
+Content: `guided-content-v3`  
 Fluency: `fluency-v0.1`
 
 ## Product boundary
@@ -20,13 +20,14 @@ supply an authoritative level or receive the service credential.
 ## Domain-first catalog and access policy
 
 The learner first chooses a domain, then a scenario inside that domain. The initial
-catalog has one `Restaurant` domain:
+catalog has `Restaurant` and `Airport` domains:
 
 | Domain | Scenario ID | Required level | Learner turns |
 | --- | --- | ---: | ---: |
 | Restaurant | `restaurant.order_drink.a1` | A1 | 6 |
 | Restaurant | `restaurant.order_meal.a1` | A1 | 6 |
 | Restaurant | `restaurant.wrong_order.b1` | B1 | 8 |
+| Airport | `airport.check_in.a2` | A2 | 6 |
 
 Scenarios at or below the learner's persisted placement are unlocked. Higher scenarios remain in
 catalog responses with `is_locked=true`, but both detailed preview and session creation return HTTP
@@ -81,10 +82,15 @@ with trusted job metadata:
 ```
 
 Job metadata is authoritative; pre-existing integrations may use the same JSON
-as room metadata during migration. The runtime fetches every fixed line from the service. Its LiveKit scheduler dependency is a local
-disabled adapter with no provider, credentials, network path, or generation method; any unexpected
-attempt to invoke it raises an error. Normal guided progression therefore makes no Gemini,
-OpenAI, or other LLM request.
+as room metadata during migration. The runtime fetches every fixed line from the service. Its
+LiveKit scheduler dependency is a local disabled LLM adapter with no provider, credentials,
+network path, or generation method; any unexpected generation attempt raises an error. Normal
+guided progression therefore makes no Gemini, OpenAI, or other LLM request.
+
+Character lines use the pinned local Piper 1.6.0 adapter and the pre-downloaded
+`en_US-lessac-medium` model. CPU synthesis runs on a thread so inference does not block the async
+room loop. Guided TTS has no runtime network call. Free conversation and placement retain their
+existing online streaming voices.
 
 The worker publishes UTF-8 JSON on reliable topic `guided.events`:
 
@@ -118,7 +124,18 @@ per-room `AgentSession`, disconnects from the room, and stops accepting STT for 
 shared `english-tutor` worker process remains running to accept later rooms. Completed speech can
 therefore never trigger a repeated "conversation is no longer active" response.
 
-## Audio and pronunciation
+## Audio, TTS, and pronunciation
+
+`scripts/setup_piper.ps1` downloads both the voice `.onnx` model and its `.onnx.json`
+configuration once. `tools/piper_preflight.py` loads them and performs real local synthesis. With
+`PIPER_REQUIRED=true`, the API readiness check reports a missing or unloadable Piper installation.
+Full-conversation replay is rendered as `audio/wav` through
+`GET /v1/guided-conversations/sessions/{id}/replay-audio`; the browser does not use Web Speech API
+voices. Learner lines in the replay are reconstructed from the fixed script and spoken slightly
+more slowly by the same Piper voice; original learner audio remains consent-gated.
+
+Piper removes the online TTS dependency only. LiveKit transport and Deepgram Flux STT remain
+online services in this architecture.
 
 Enhanced audio feeds Flux for word timing, speech start/end, and the auxiliary transcript. When the
 learner grants recording consent, the original pre-enhancement segment is encrypted and stored for
@@ -147,11 +164,12 @@ describes this oral-reading scenario; the model validator prohibits CEFR output 
 Guided oral-reading lines use task-specific evidence gates: two timed words and 0.8 seconds per
 line. A session needs at least three eligible guided lines and then either five eligible lines or
 eight seconds of eligible learner speech. Free conversation retains its five-word, 2.5-second
-per-turn and 30-second session rules; assessment is also unchanged. The final report returns
-`result_debug.thresholds` and one `result_debug.lines` row per scenario line with timing source,
-timed words, duration, ASR confidence, eligibility, and exact insufficiency reasons.
+per-turn and 30-second session rules; assessment is also unchanged. The internal debug report
+retains `result_debug.thresholds` and one `result_debug.lines` row per scenario line with timing
+source, timed words, duration, ASR confidence, eligibility, and exact insufficiency reasons. These
+fields are available only on the admin route and are not returned to the learner interface.
 
-Delivery stability separately reports:
+The internal delivery-stability model separately reports:
 
 - mean prompt-to-speech time;
 - expected-line completion ratio;
@@ -161,7 +179,24 @@ Delivery stability separately reports:
 
 The label is `stable`, `developing`, or `needs_more_evidence`. It is observable delivery, not a
 claim about psychological confidence. Before and after 0–100 values are stored only as learner
-self-report, with a simple difference in the final report.
+self-report. Neither object appears in the learner result; both remain available to developers in
+the admin debug report.
+
+## Learner result versus developer diagnostics
+
+The learner DTO deliberately answers “how did I do, and what should I practise next?” It returns:
+
+- one speaking-flow score and friendly headline;
+- completion;
+- Pace, Smoothness, and Connected Speech skill cards;
+- one strength and one next step;
+- up to three real pronunciation tips when the optional phoneme service completed; and
+- replay/practise-again actions plus the no-CEFR-change note.
+
+It excludes evidence confidence, eligible-line counts, raw timing, delivery stability,
+repair/breakdown terminology, thresholds, line reasons, versions, and internal limitations.
+Insufficient evidence produces no numeric score and a friendly request to repeat the scenario.
+The admin DTO preserves every former report field for debugging and calibration.
 
 ## Privacy and persistence
 
@@ -175,7 +210,8 @@ fluency, delivery, and pronunciation versions so later releases do not reinterpr
 
 ## API sequence
 
-All `/v1` calls require `Authorization: Bearer <ASSESSMENT_SERVICE_TOKEN>` and are made by the BFF.
+Normal `/v1` calls require `Authorization: Bearer <ASSESSMENT_SERVICE_TOKEN>` and are made by the
+BFF. The `/v1/admin` debug route requires the separate admin token and is never browser-facing.
 
 1. `GET /v1/guided-conversations/domains?placement_completed=true&placement_level=A1`
 2. Select a scenario nested inside its domain; optionally preview it through
@@ -185,7 +221,10 @@ All `/v1` calls require `Authorization: Bearer <ASSESSMENT_SERVICE_TOKEN>` and a
 5. LiveKit worker calls `prompt-ready`, uploads consented audio, and submits attempts.
 6. Browser/BFF posts post-task confidence to `/sessions/{id}/confidence`.
 7. The worker closes the room session after the fixed closing line.
-8. `GET /v1/practice-sessions/{id}/result?mode=guided`; pending pronunciation can be refreshed.
+8. `GET /v1/practice-sessions/{id}/result?mode=guided` for the learner-facing result.
+9. `GET /v1/guided-conversations/sessions/{id}/replay-audio` for local Piper replay.
+10. Developers may call
+    `GET /v1/admin/guided-conversations/sessions/{id}/debug-report` with the admin token.
 
 The generated request and response schemas are in `docs/api/openapi.yaml`. A browser data-topic
 adapter is provided in `examples/frontend/guided-conversation.ts`; a runnable

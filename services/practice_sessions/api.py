@@ -109,7 +109,7 @@ def get_practice_result(
     request: Request,
 ) -> PracticeSessionResult:
     if mode == PracticeMode.GUIDED:
-        result = request.app.state.guided_service.report(practice_session_id)
+        result = request.app.state.guided_service.learner_result(practice_session_id)
     else:
         observations = request.app.state.repository.list_fluency_observations(
             practice_session_id

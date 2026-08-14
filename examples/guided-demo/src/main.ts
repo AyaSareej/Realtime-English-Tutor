@@ -85,6 +85,32 @@ interface GuidedEvent {
   data: Record<string, unknown>;
 }
 
+interface LearnerSkill {
+  key: "pace" | "smoothness" | "connected_speech";
+  label: string;
+  score: number;
+  rating: "strong" | "good" | "keep_practising";
+  message: string;
+}
+
+interface LearnerResult {
+  session_id: string;
+  domain_title: string;
+  scenario_title: string;
+  scenario_level: Level;
+  result_status: "ready" | "needs_more_speech" | "incomplete";
+  headline: string;
+  speaking_flow_score: number | null;
+  completion: { completed_lines: number; total_lines: number; percent: number };
+  skills: LearnerSkill[];
+  strength: string | null;
+  next_step: string;
+  pronunciation_tips: string[];
+  can_practise_again: boolean;
+  replay_audio_url: string | null;
+  practice_note: string;
+}
+
 interface HistoryEntry {
   key: string;
   role: "assistant" | "learner";
@@ -98,7 +124,7 @@ if (!app) throw new Error("App element was not found");
 app.innerHTML = `
   <section class="shell">
     <header>
-      <p class="eyebrow">Real-Time English Tutor · 0.6.0</p>
+      <p class="eyebrow">Real-Time English Tutor · 0.7.0</p>
       <h1>Guided conversation test</h1>
       <p class="intro">Choose a domain, select a level-approved scenario, and keep the complete conversation visible while you practise.</p>
     </header>
@@ -135,7 +161,7 @@ app.innerHTML = `
       <p class="microphone">These colors debug what speech recognition trusted; they are not pronunciation grades.</p>
       <div class="end-actions">
         <button id="repeat-all" class="hidden">Replay full conversation</button>
-        <button id="report" class="primary hidden">View result and debug details</button>
+        <button id="report" class="primary hidden">View result</button>
       </div>
     </section>
 
@@ -173,6 +199,7 @@ let history: HistoryEntry[] = [];
 const historyKeys = new Set<string>();
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+let replayObjectUrl: string | null = null;
 
 function escapeHtml(value: unknown): string {
   return String(value ?? "")
@@ -381,69 +408,72 @@ async function sendCommand(command: string): Promise<void> {
   if (command === "resume") await room.localParticipant.setMicrophoneEnabled(true);
 }
 
-function repeatConversation(): void {
-  if (!("speechSynthesis" in window) || !history.length) {
-    elements.status.textContent = "Full-conversation replay is unavailable in this browser.";
-    return;
-  }
-  window.speechSynthesis.cancel();
-  elements.status.textContent = "Replaying the complete conversation from the visible history…";
-  history.forEach((entry, index) => {
-    const utterance = new SpeechSynthesisUtterance(entry.text);
-    utterance.lang = "en-US";
-    utterance.pitch = entry.role === "assistant" ? 1.05 : 0.95;
-    utterance.rate = 0.92;
-    if (index === history.length - 1) {
-      utterance.onend = () => {
-        elements.status.textContent = "Full-conversation replay finished.";
-      };
+async function repeatConversation(): Promise<void> {
+  if (!bootstrap) return;
+  const replayUrl = `/v1/guided-conversations/sessions/${bootstrap.practice_session_id}/replay-audio`;
+  elements.repeatAll.disabled = true;
+  elements.status.textContent = "Piper is creating the local full-conversation replay…";
+  try {
+    const response = await fetch(`/backend${replayUrl}`);
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.detail || `Replay failed with HTTP ${response.status}`);
     }
-    window.speechSynthesis.speak(utterance);
-  });
+    const blob = await response.blob();
+    if (replayObjectUrl) URL.revokeObjectURL(replayObjectUrl);
+    replayObjectUrl = URL.createObjectURL(blob);
+    elements.audio.srcObject = null;
+    elements.audio.src = replayObjectUrl;
+    elements.audio.onended = () => {
+      elements.status.textContent = "Full-conversation replay finished.";
+      elements.repeatAll.disabled = false;
+    };
+    await elements.audio.play();
+    elements.status.textContent = "Replaying the complete scripted dialogue with local Piper TTS…";
+  } catch (error) {
+    elements.status.textContent = error instanceof Error ? error.message : String(error);
+    elements.repeatAll.disabled = false;
+  }
 }
 
 async function showReport(): Promise<void> {
   if (!bootstrap) return;
-  const envelope = await backend<any>(bootstrap.result_url);
+  const envelope = await backend<{ result: LearnerResult }>(bootstrap.result_url);
   const report = envelope.result;
-  const fluency = report.guided_speaking_fluency;
-  const evidence = fluency.evidence_count;
-  const scores = fluency.subscores;
-  const debug = report.result_debug;
-  const threshold = debug.thresholds;
-  const diagnosticRows = debug.lines
+  const skillCards = report.skills
     .map(
-      (line: any) => `<tr>
-        <td>${line.line_number}</td><td>${line.eligible ? "Included" : "Excluded"}</td>
-        <td>${line.timed_word_count}/${line.expected_word_count}</td>
-        <td>${Number(line.response_duration_seconds).toFixed(2)} s</td>
-        <td>${escapeHtml(line.timing_source)}</td>
-        <td>${line.asr_confidence_percent ?? "—"}${line.asr_confidence_percent === null ? "" : "%"}</td>
-        <td>${escapeHtml(line.insufficiency_reasons.join(" ") || "—")}</td>
-      </tr>`,
+      (skill) => `<article class="skill-card ${skill.rating}">
+        <div><span>${escapeHtml(skill.label)}</span><strong>${skill.score}</strong></div>
+        <div class="skill-track"><i style="width:${skill.score}%"></i></div>
+        <p>${escapeHtml(skill.message)}</p>
+      </article>`,
     )
     .join("");
+  const pronunciation = report.pronunciation_tips.length
+    ? `<section class="learner-feedback"><h3>Pronunciation practice</h3><ul>${report.pronunciation_tips
+        .map((tip) => `<li>${escapeHtml(tip)}</li>`)
+        .join("")}</ul></section>`
+    : "";
   elements.resultBody.innerHTML = `
-    <div class="metrics">
-      <article><span>Fluency index</span><strong>${fluency.fluency_index ?? "Not enough evidence"}</strong></article>
-      <article><span>Evidence confidence</span><strong>${escapeHtml(fluency.confidence)}</strong></article>
-      <article><span>Eligible lines</span><strong>${evidence.eligible_turns}/${evidence.total_turns}</strong></article>
-      <article><span>Learner speech</span><strong>${evidence.learner_speech_seconds.toFixed(1)} s</strong></article>
-      <article><span>Delivery</span><strong>${escapeHtml(report.delivery_stability.label.replaceAll("_", " "))}</strong></article>
-      <article><span>Retries</span><strong>${report.delivery_stability.total_retries}</strong></article>
+    <section class="result-hero">
+      <div><p>${escapeHtml(report.domain_title)} · ${escapeHtml(report.scenario_title)}</p><h3>${escapeHtml(report.headline)}</h3></div>
+      <div class="flow-score"><strong>${report.speaking_flow_score ?? "—"}</strong><span>Speaking flow</span></div>
+    </section>
+    <p class="completion-copy">Completed ${report.completion.completed_lines} of ${report.completion.total_lines} lines.</p>
+    ${skillCards ? `<section class="skill-grid">${skillCards}</section>` : ""}
+    <section class="learner-feedback">
+      ${report.strength ? `<p class="strength"><strong>What went well:</strong> ${escapeHtml(report.strength)}</p>` : ""}
+      <p><strong>Next step:</strong> ${escapeHtml(report.next_step)}</p>
+    </section>
+    ${pronunciation}
+    <div class="result-actions">
+      ${report.replay_audio_url ? `<button id="result-replay">Replay full conversation</button>` : ""}
+      ${report.can_practise_again ? `<button id="practise-again" class="primary">Practise this scenario again</button>` : ""}
     </div>
-    ${scores ? `<div class="subscores"><span>Speed ${scores.speed}</span><span>Breakdown ${scores.breakdown}</span><span>Continuity ${scores.continuity}</span><span>Repair ${scores.repair}</span></div>` : ""}
-    <h3>Feedback</h3>
-    <ul>${fluency.feedback.map((item: string) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
-    <details class="debug" open>
-      <summary>Why did I get this result?</summary>
-      <p>${escapeHtml(debug.summary)}</p>
-      <p class="note">Guided thresholds: at least ${threshold.minimum_timed_words_per_line} timed words and ${threshold.minimum_timed_seconds_per_line.toFixed(1)} s per line; then ${threshold.minimum_eligible_lines} eligible lines, with a target of ${threshold.target_eligible_lines} lines or ${threshold.minimum_speech_seconds_when_below_target.toFixed(0)} s.</p>
-      <div class="table-wrap"><table><thead><tr><th>Line</th><th>Decision</th><th>Timed/expected words</th><th>Duration</th><th>Timing</th><th>ASR confidence</th><th>Reason</th></tr></thead><tbody>${diagnosticRows}</tbody></table></div>
-      <ul>${debug.guidance.map((item: string) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
-    </details>
-    <p class="note">CEFR result: none. Guided practice never changes placement.</p>
+    <p class="note">${escapeHtml(report.practice_note)}</p>
   `;
+  document.querySelector<HTMLButtonElement>("#result-replay")?.addEventListener("click", () => void repeatConversation());
+  document.querySelector<HTMLButtonElement>("#practise-again")?.addEventListener("click", () => void startGuided());
   elements.result.classList.remove("hidden");
   elements.result.scrollIntoView({ behavior: "smooth" });
 }
@@ -452,7 +482,7 @@ elements.level.addEventListener("change", () => void loadDomains());
 elements.domain.addEventListener("change", renderScenarioOptions);
 elements.start.addEventListener("click", () => void startGuided());
 elements.report.addEventListener("click", () => void showReport());
-elements.repeatAll.addEventListener("click", repeatConversation);
+elements.repeatAll.addEventListener("click", () => void repeatConversation());
 document.querySelectorAll<HTMLButtonElement>("[data-command]").forEach((button) => {
   button.addEventListener("click", () => void sendCommand(button.dataset.command || ""));
 });

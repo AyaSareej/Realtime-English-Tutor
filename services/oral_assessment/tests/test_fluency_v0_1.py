@@ -4,6 +4,7 @@ import os
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
@@ -188,7 +189,7 @@ class FluencyAPITests(unittest.TestCase):
                 self.assertEqual(200, first.status_code, first.text)
                 self.assertEqual(first.json(), second.json())
 
-                with sqlite3.connect(database_path) as connection:
+                with closing(sqlite3.connect(database_path)) as connection:
                     rows = connection.execute(
                         "SELECT result_json FROM fluency_observations"
                     ).fetchall()
